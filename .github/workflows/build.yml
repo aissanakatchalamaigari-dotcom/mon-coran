@@ -13,11 +13,48 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - working-directory: mon_coran
+      - name: Creer le projet Android
+        working-directory: mon_coran
         run: |
           flutter create --platforms=android --project-name mon_coran --org com.moncoran .
           python3 tools/patch_android.py
           rm -rf test
+      - name: Forcer compileSdk 36 pour les plugins
+        working-directory: mon_coran
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          kts_snip = '''subprojects {
+              if (project.name != "app") {
+                  afterEvaluate {
+                      project.extensions.findByName("android")?.let { ext ->
+                          ext.withGroovyBuilder { "compileSdkVersion"(36) }
+                      }
+                  }
+              }
+          }
+
+          '''
+          grv_snip = '''subprojects {
+              if (project.name != 'app') {
+                  afterEvaluate { p ->
+                      if (p.hasProperty('android')) {
+                          p.android.compileSdkVersion 36
+                      }
+                  }
+              }
+          }
+
+          '''
+          for name, snip in (('android/build.gradle.kts', kts_snip), ('android/build.gradle', grv_snip)):
+              p = pathlib.Path(name)
+              if p.exists():
+                  p.write_text(snip + p.read_text())
+                  print('patched', name)
+          PY
+      - name: Compiler l'APK
+        working-directory: mon_coran
+        run: |
           flutter pub get
           flutter build apk --release --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
       - uses: actions/upload-artifact@v4
